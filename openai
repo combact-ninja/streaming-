@@ -1,0 +1,252 @@
+import openai
+
+# Set your OpenAI API key
+openai.api_key = 'your-api-key'
+
+
+def integrate_llm(features):
+    processed_features = []
+
+    for feature_vector in features:
+        # Convert the feature vector to a string to send to the LLM
+        input_text = ' '.join(map(str, feature_vector))
+
+        # Call the OpenAI API with the input_text
+        response = openai.Completion.create(
+            engine="text-davinci-003",  # Specify the model you want to use
+            prompt=input_text,
+            max_tokens=150,  # Adjust based on your needs
+            n=1,
+            stop=None,
+            temperature=0.7
+        )
+
+        # Extract the response text and convert it back to a numerical format
+        response_text = response.choices[0].text.strip()
+        response_vector = list(map(float, response_text.split()))
+
+        processed_features.append(response_vector)
+
+    return np.array(processed_features)
+
+
+import numpy as np
+from keras.models import Model, Sequential
+from keras.layers import Input, Dense, LSTM, Bidirectional, TimeDistributed, Dropout, Flatten
+from keras.optimizers import Adam
+import openai
+
+# Set your OpenAI API key
+openai.api_key = 'your-api-key'
+
+# Assuming X_train, X_test, y_train, y_test are already defined and preprocessed
+# X_train, X_test shape: (number_of_samples, 100, 140)
+# y_train, y_test shape: (number_of_samples, number_of_classes or 1)
+
+# Define the TimeDistributed BiLSTM model
+input_shape = (100, 140)  # shape of the input features
+
+bilstm_input = Input(shape=input_shape)
+time_distributed = TimeDistributed(Dense(128, activation='relu'))(bilstm_input)
+time_distributed = TimeDistributed(Dropout(0.5))(time_distributed)
+time_distributed = TimeDistributed(Dense(64, activation='relu'))(time_distributed)
+time_distributed = TimeDistributed(Dropout(0.5))(time_distributed)
+
+bilstm = Bidirectional(LSTM(50, return_sequences=True))(time_distributed)
+bilstm = Bidirectional(LSTM(50))(bilstm)
+
+dense = Dense(256, activation='relu')(bilstm)
+dense = Dropout(0.5)(dense)
+dense = Dense(128, activation='relu')(dense)
+dense = Dropout(0.5)(dense)
+
+# Output layer, assuming regression; change activation if classification
+output = Dense(1, activation='linear')(dense)
+
+# Compile the BiLSTM model
+bilstm_model = Model(inputs=bilstm_input, outputs=output)
+bilstm_model.compile(optimizer=Adam(learning_rate=0.001), loss='mse', metrics=['mse'])
+
+# Print the model summary
+bilstm_model.summary()
+
+# Train the BiLSTM model
+bilstm_model.fit(X_train, y_train, epochs=100, batch_size=32, validation_data=(X_test, y_test), verbose=2)
+
+# Extract features from the BiLSTM model
+bilstm_features_train = bilstm_model.predict(X_train)
+bilstm_features_test = bilstm_model.predict(X_test)
+
+# Flatten the features for LLM input
+bilstm_features_train = bilstm_features_train.reshape(bilstm_features_train.shape[0], -1)
+bilstm_features_test = bilstm_features_test.reshape(bilstm_features_test.shape[0], -1)
+
+def integrate_llm(features):
+    processed_features = []
+
+    for feature_vector in features:
+        # Convert the feature vector to a string to send to the LLM
+        input_text = ' '.join(map(str, feature_vector))
+
+        # Call the OpenAI API with the input_text
+        response = openai.Completion.create(
+            engine="text-davinci-003",  # Specify the model you want to use
+            prompt=input_text,
+            max_tokens=150,  # Adjust based on your needs
+            n=1,
+            stop=None,
+            temperature=0.7
+        )
+
+        # Extract the response text and convert it back to a numerical format
+        response_text = response.choices[0].text.strip()
+        response_vector = list(map(float, response_text.split()))
+
+        processed_features.append(response_vector)
+
+    return np.array(processed_features)
+
+# Integrate LLM with BiLSTM features
+llm_features_train = integrate_llm(bilstm_features_train)
+llm_features_test = integrate_llm(bilstm_features_test)
+
+# Build final model for prediction based on LLM-processed features
+final_model = Sequential()
+final_model.add(Dense(256, activation='relu', input_shape=(llm_features_train.shape[1],)))
+final_model.add(Dropout(0.5))
+final_model.add(Dense(128, activation='relu'))
+final_model.add(Dropout(0.5))
+final_model.add(Dense(1, activation='linear'))  # Adjust for regression or classification
+
+# Compile the final model
+final_model.compile(optimizer=Adam(learning_rate=0.001), loss='mse', metrics=['mse'])
+
+# Train the final model
+final_model.fit(llm_features_train, y_train, epochs=100, batch_size=32, validation_data=(llm_features_test, y_test), verbose=2)
+
+# Prediction
+y_pred = final_model.predict(llm_features_test)
+
+# Evaluation
+mse = final_model.evaluate(llm_features_test, y_test)
+print(f'MSE: {mse}')
+----------------------------------------------------------------------------------------------------------------------------------------
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+import numpy as np
+import torch
+from transformers import BertModel, BertTokenizer
+from keras.models import Model, Sequential
+from keras.layers import Input, Dense, LSTM, Bidirectional, TimeDistributed, Dropout, Flatten
+from keras.optimizers import Adam
+
+# Assuming X_train, X_test, y_train, y_test are already defined and preprocessed
+# X_train, X_test shape: (number_of_samples, 100, 140)
+# y_train, y_test shape: (number_of_samples, number_of_classes or 1)
+
+# Initialize BERT model and tokenizer
+model_name = "bert-base-uncased"
+tokenizer = BertTokenizer.from_pretrained(model_name)
+bert_model = BertModel.from_pretrained(model_name)
+
+# Function to convert features using BERT
+def integrate_llm(features):
+    processed_features = []
+
+    for feature_vector in features:
+        # Convert the feature vector to a string to send to the LLM
+        input_text = ' '.join(map(str, feature_vector))
+        
+        # Tokenize and encode the input text
+        inputs = tokenizer(input_text, return_tensors='pt', truncation=True, padding=True)
+        
+        # Get BERT embeddings
+        with torch.no_grad():
+            outputs = bert_model(**inputs)
+            embeddings = outputs.last_hidden_state.mean(dim=1).numpy().flatten()
+        
+        processed_features.append(embeddings)
+
+    return np.array(processed_features)
+
+# Define the TimeDistributed BiLSTM model
+input_shape = (100, 140)  # shape of the input features
+
+bilstm_input = Input(shape=input_shape)
+time_distributed = TimeDistributed(Dense(128, activation='relu'))(bilstm_input)
+time_distributed = TimeDistributed(Dropout(0.5))(time_distributed)
+time_distributed = TimeDistributed(Dense(64, activation='relu'))(time_distributed)
+time_distributed = TimeDistributed(Dropout(0.5))(time_distributed)
+
+bilstm = Bidirectional(LSTM(50, return_sequences=True))(time_distributed)
+bilstm = Bidirectional(LSTM(50))(bilstm)
+
+dense = Dense(256, activation='relu')(bilstm)
+dense = Dropout(0.5)(dense)
+dense = Dense(128, activation='relu')(dense)
+dense = Dropout(0.5)(dense)
+
+# Output layer, assuming regression; change activation if classification
+output = Dense(1, activation='linear')(dense)
+
+# Compile the BiLSTM model
+bilstm_model = Model(inputs=bilstm_input, outputs=output)
+bilstm_model.compile(optimizer=Adam(learning_rate=0.001), loss='mse', metrics=['mse'])
+
+# Print the model summary
+bilstm_model.summary()
+
+# Train the BiLSTM model
+bilstm_model.fit(X_train, y_train, epochs=100, batch_size=32, validation_data=(X_test, y_test), verbose=2)
+
+# Extract features from the BiLSTM model
+bilstm_features_train = bilstm_model.predict(X_train)
+bilstm_features_test = bilstm_model.predict(X_test)
+
+# Flatten the features for LLM input
+bilstm_features_train = bilstm_features_train.reshape(bilstm_features_train.shape[0], -1)
+bilstm_features_test = bilstm_features_test.reshape(bilstm_features_test.shape[0], -1)
+
+# Integrate LLM with BiLSTM features
+llm_features_train = integrate_llm(bilstm_features_train)
+llm_features_test = integrate_llm(bilstm_features_test)
+
+# Build final model for prediction based on LLM-processed features
+final_model = Sequential()
+final_model.add(Dense(256, activation='relu', input_shape=(llm_features_train.shape[1],)))
+final_model.add(Dropout(0.5))
+final_model.add(Dense(128, activation='relu'))
+final_model.add(Dropout(0.5))
+final_model.add(Dense(1, activation='linear'))  # Adjust for regression or classification
+
+# Compile the final model
+final_model.compile(optimizer=Adam(learning_rate=0.001), loss='mse', metrics=['mse'])
+
+# Train the final model
+final_model.fit(llm_features_train, y_train, epochs=100, batch_size=32, validation_data=(llm_features_test, y_test), verbose=2)
+
+# Prediction
+y_pred = final_model.predict(llm_features_test)
+
+# Evaluation
+mse = final_model.evaluate(llm_features_test, y_test)
+print(f'MSE: {mse}')
+--------------------------------------------------------------------------------------------------------------
